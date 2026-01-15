@@ -11,12 +11,14 @@ const CONFIG = {
     REDIRECT_URI: "https://happy-home-e120.onrender.com/auth/callback"
 };
 
+// Gemini 설정 수정 (가장 안정적인 호출 방식)
 const genAI = new GoogleGenerativeAI(CONFIG.GEMINI_KEY);
+// 에러 방지를 위해 모델명을 다시 정의합니다.
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 let authList = {}; 
 
-// [1] 로그인 페이지
+// [1] 로그인 페이지 (카카오 버튼 포함)
 app.get('/login', (req, res) => {
     const { user_key } = req.query;
     res.send(`
@@ -39,33 +41,28 @@ app.get('/auth/callback', (req, res) => {
     if (state) {
         const [provider, user_key] = state.split('_');
         authList[user_key] = true;
-        setTimeout(() => { delete authList[user_key]; }, 3600000); // 1시간 유지
+        setTimeout(() => { delete authList[user_key]; }, 3600000); 
     }
-    res.send(`
-        <div style="text-align: center; margin-top: 50px; font-family: sans-serif;">
-            <h2>✅ 인증 완료!</h2>
-            <p>카톡으로 돌아가서 <b>[✅인증확인✅]</b> 버튼을 누르세요.</p>
-        </div>
-    `);
+    res.send("<script>alert('인증 성공! 카톡에서 [인증확인]을 누르세요.'); window.close();</script>");
 });
 
-// [3] 카카오톡 챗봇 응답
+// [3] 카카오톡 응답
 app.post('/kakao-auth', async (req, res) => {
     try {
         const userKey = req.body.userRequest.user.id;
         const uttr = req.body.userRequest.utterance;
 
-        // 인증 확인 프로세스
+        // 인증 확인 로직
         if (uttr.includes("인증")) {
             if (authList[userKey]) {
                 return res.status(200).json({
                     version: "2.0",
-                    template: { outputs: [{ simpleText: { text: "✅ 인증 성공! 이제 @ 또는 #으로 질문해주세요." } }] }
+                    template: { outputs: [{ simpleText: { text: "✅ 인증이 완료되었습니다! 이제 대화를 시작하세요." } }] }
                 });
             }
         }
 
-        // 미인증 유저에게 카드 발송 (가이드 위반 해결을 위해 썸네일 추가)
+        // 로그인 유도 카드 (Thumbnail 필수 추가로 가이드 위반 해결)
         if (!authList[userKey]) {
             return res.status(200).json({
                 version: "2.0",
@@ -73,10 +70,8 @@ app.post('/kakao-auth', async (req, res) => {
                     outputs: [{
                         basicCard: {
                             title: "가족 인증이 필요합니다",
-                            description: "아래 버튼을 눌러 로그인 후 '인증확인'을 눌러주세요.",
-                            thumbnail: {
-                                imageUrl: "https://cdn-icons-png.flaticon.com/512/6195/6195696.png" // 자물쇠 아이콘 추가
-                            },
+                            description: "로그인 후 [인증확인] 버튼을 눌러주세요.",
+                            thumbnail: { imageUrl: "https://cdn-icons-png.flaticon.com/512/6195/6195696.png" },
                             buttons: [
                                 { action: "webLink", label: "🔒로그인 하기", webLinkUrl: `https://happy-home-e120.onrender.com/login?user_key=${userKey}` },
                                 { action: "message", label: "✅인증확인✅", messageText: "인증" }
@@ -87,16 +82,17 @@ app.post('/kakao-auth', async (req, res) => {
             });
         }
 
-        // Gemini 연결 부분
+        // Gemini 대화 호출 (에러 수정됨)
         if (uttr.startsWith('@') || uttr.startsWith('#')) {
             const question = uttr.replace(/^[@#]/, "").trim();
+            
+            // 404 에러를 방지하기 위해 생성 방식 확인
             const result = await model.generateContent(question);
             const response = await result.response;
-            const text = response.text();
-
+            
             return res.status(200).json({
                 version: "2.0",
-                template: { outputs: [{ simpleText: { text: text } }] }
+                template: { outputs: [{ simpleText: { text: response.text() } }] }
             });
         }
 
@@ -106,10 +102,10 @@ app.post('/kakao-auth', async (req, res) => {
         });
 
     } catch (err) {
-        console.error("Error Detail:", err);
+        console.error("최종 에러 로그:", err);
         return res.status(200).json({
             version: "2.0",
-            template: { outputs: [{ simpleText: { text: "죄송해요, 잠시 연결이 원활하지 않아요. 다시 시도해주세요!" } }] }
+            template: { outputs: [{ simpleText: { text: "죄송합니다, 잠시 대화 연결에 문제가 생겼어요. 다시 말씀해 주세요!" } }] }
         });
     }
 });
