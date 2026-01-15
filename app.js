@@ -1,44 +1,36 @@
-const express = require('express');
-const app = express();
-app.use(express.json());
+app.post('/kakao-auth', (req, res) => {
+    const userKey = req.body.userRequest.user.id; // 사용자의 카카오 ID
+    const isFamily = authList[userKey]; // 장부에서 인증 확인
 
-// 1. 임시 장부 (서버가 재시작되면 초기화됨)
-let authList = {};
-
-// 2. 가족이 들어오는 로그인 화면
-app.get('/login', (req, res) => {
-    const userKey = req.query.user_key; 
-    res.send(`
-        <h1>가족 인증 시스템</h1>
-        <p>인증을 시작하시겠습니까?</p>
-        <button onclick="location.href='/verify?user_key=${userKey}'">구글/MS 계정으로 인증</button>
-    `);
-});
-
-// 3. 실제 인증이 완료되는 시점 (소셜 로그인 성공 후 리다이렉트되는 곳)
-app.get('/verify', (req, res) => {
-    const userKey = req.query.user_key;
-    if (userKey) {
-        authList[userKey] = true; // 장부에 '인증됨' 기록!
-        res.send("<h2>인증 성공!</h2><p>이제 카카오톡으로 돌아가서 '확인' 버튼을 누르세요.</p>");
+    if (isFamily) {
+        // [경우 1] 인증된 사람에게는 확인 메시지만 보냄
+        res.json({
+            version: "2.0",
+            template: {
+                outputs: [{
+                    simpleText: { text: "✅ 인증이 완료된 가족입니다. 자유롭게 이용하세요!" }
+                }]
+            }
+        });
+    } else {
+        // [경우 2] 인증 안 된 사람에게는 '로그인 버튼'을 만들어서 보냄
+        res.json({
+            version: "2.0",
+            template: {
+                outputs: [{
+                    basicCard: {
+                        title: "가족 인증이 필요합니다",
+                        description: "아래 버튼을 눌러 로그인을 완료한 후 다시 확인해주세요.",
+                        buttons: [
+                            {
+                                action: "webLink",
+                                label: "🔒 로그인하러 가기",
+                                webLinkUrl: `https://본인주소.onrender.com/login?user_key=${userKey}` // 본인 Render 주소로 수정!
+                            }
+                        ]
+                    }
+                }]
+            }
+        });
     }
 });
-
-// 4. [중요] 카카오 챗봇이 물어보는 뒷문 (API)
-app.post('/kakao-auth', (req, res) => {
-    const userKey = req.body.userRequest.user.id; // 챗봇이 보낸 ID
-    const isFamily = authList[userKey]; // 장부 확인
-
-    res.json({
-        version: "2.0",
-        template: {
-            outputs: [{
-                simpleText: {
-                    text: isFamily ? "✅ 확인되었습니다. 우리 가족이 맞네요!" : "❌ 아직 인증 전입니다. 위 링크에서 로그인을 해주세요."
-                }
-            }]
-        }
-    });
-});
-
-app.listen(3000, () => console.log('Server is running!'));
