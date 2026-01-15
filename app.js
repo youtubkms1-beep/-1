@@ -1,16 +1,15 @@
 const express = require('express');
 const axios = require('axios');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { OAuth2Client } = require('google-auth-library');
 
 const app = express();
 app.use(express.json());
 
-// 1. 설정 (보내주신 키와 정보 적용)
+// 1. 설정 (새로 주신 구글 키값 적용)
 const CONFIG = {
     GOOGLE: { 
-        id: "454352830368-03qq6p3sp2md488cakspnj2nltpa8e6t.apps.googleusercontent.com",
-        secret: "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"
+        id: "1065457238444-jo0k3dr5bj0th94qg7i54his9tg66l55.apps.googleusercontent.com",
+        secret: "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"
     },
     KAKAO: { 
         id: "5989b66949eca05b1492411f9adf726b",
@@ -23,12 +22,12 @@ const CONFIG = {
 const genAI = new GoogleGenerativeAI(CONFIG.GEMINI_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-let authList = {}; // 인증된 유저 저장 (메모리 방식)
+let authList = {}; 
 
-// [경로 1] 로그인 페이지 (접속 문제 해결을 위해 최상단에 배치)
+// [경로 1] 로그인 페이지 (최상단 배치)
 app.get('/login', (req, res) => {
     const { user_key } = req.query;
-    if (!user_key) return res.status(400).send("잘못된 접근입니다. 카카오톡에서 버튼을 눌러주세요.");
+    if (!user_key) return res.status(400).send("잘못된 접근입니다. 카톡에서 버튼을 눌러주세요.");
 
     res.send(`
         <div style="text-align: center; margin-top: 50px; font-family: sans-serif;">
@@ -69,7 +68,6 @@ app.post('/kakao-auth', async (req, res) => {
     const userKey = req.body.userRequest.user.id;
     const uttr = req.body.userRequest.utterance;
 
-    // 1. 인증 체크
     if (!authList[userKey]) {
         return res.json({
             version: "2.0",
@@ -89,7 +87,6 @@ app.post('/kakao-auth', async (req, res) => {
         });
     }
 
-    // 2. 인증된 유저가 @ 또는 #으로 말할 때 Gemini 작동
     if (uttr.startsWith('@') || uttr.startsWith('#')) {
         try {
             const question = uttr.replace(/^[@#]/, "").trim();
@@ -109,14 +106,13 @@ app.post('/kakao-auth', async (req, res) => {
         }
     }
 
-    // 3. 기호 없이 말한 경우 가이드
     res.json({
         version: "2.0",
         template: { outputs: [{ simpleText: { text: "AI와 대화하려면 @ 또는 #을 앞에 붙여주세요!" } }] }
     });
 });
 
-// [핵심] Render 포트 바인딩 해결 코드
+// [중요] Render 포트 바인딩 해결 코드
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ 서버가 포트 ${PORT}에서 정상 가동 중입니다.`);
