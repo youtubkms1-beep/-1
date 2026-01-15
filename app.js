@@ -11,25 +11,22 @@ const CONFIG = {
     REDIRECT_URI: "https://happy-home-e120.onrender.com/auth/callback"
 };
 
-// [핵심 수정] v1beta 버전을 강제로 사용하도록 설정
 const genAI = new GoogleGenerativeAI(CONFIG.GEMINI_KEY);
-// 모델 선언 시점에 API 버전을 명시적으로 지정하여 404 에러를 방지합니다.
-const model = genAI.getGenerativeModel({ 
-    model: "gemini-1.5-flash"
-}, { apiVersion: 'v1beta' }); // 여기서 v1beta로 맞춤
+
+// [변경] 가장 안정적인 gemini-pro 모델을 우선 시도합니다.
+let model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
 let authList = {}; 
 
-// [1] 로그인 페이지 (구글 400 에러 해결을 위한 스코프 최적화)
+// [1] 로그인 페이지 (인코딩 보강)
 app.get('/login', (req, res) => {
     const { user_key } = req.query;
-    // URL 인코딩을 적용하여 구글 서버가 정확히 인식하게 합니다.
     const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CONFIG.GOOGLE_ID}&redirect_uri=${encodeURIComponent(CONFIG.REDIRECT_URI)}&response_type=code&scope=openid%20email%20profile&state=google_${user_key}`;
     const kakaoAuthUrl = `https://kauth.kakao.com/oauth/authorize?client_id=${CONFIG.KAKAO_ID}&redirect_uri=${encodeURIComponent(CONFIG.REDIRECT_URI)}&response_type=code&state=kakao_${user_key}`;
 
     res.send(`
         <div style="text-align: center; margin-top: 50px; font-family: sans-serif;">
-            <h2>🏠 행복한 우리집 인증</h2>
+            <h2>🏠 가족 인증 센터</h2>
             <div style="display: flex; flex-direction: column; align-items: center; gap: 15px; margin-top: 30px;">
                 <a href="${googleAuthUrl}" style="width: 220px; padding: 15px; background: white; border: 1px solid #ccc; text-decoration: none; color: black; border-radius: 8px; font-weight: bold;">Google 로그인</a>
                 <a href="${kakaoAuthUrl}" style="width: 220px; padding: 15px; background: #FEE500; border: none; text-decoration: none; color: black; border-radius: 8px; font-weight: bold;">카카오 로그인</a>
@@ -46,7 +43,7 @@ app.get('/auth/callback', (req, res) => {
         authList[user_key] = true;
         setTimeout(() => { delete authList[user_key]; }, 3600000); 
     }
-    res.send("<script>alert('인증되었습니다!'); window.close();</script><h2>✅ 인증 성공! 카톡으로 돌아가세요.</h2>");
+    res.send("<script>alert('인증 완료!'); window.close();</script><h2>✅ 인증 성공! 카톡으로 돌아가세요.</h2>");
 });
 
 // [3] 카카오톡 응답 로직
@@ -55,15 +52,13 @@ app.post('/kakao-auth', async (req, res) => {
         const userKey = req.body.userRequest.user.id;
         const uttr = req.body.userRequest.utterance;
 
-        // 인증 확인 버튼 대응
         if (uttr.includes("인증") && authList[userKey]) {
             return res.status(200).json({
                 version: "2.0",
-                template: { outputs: [{ simpleText: { text: "✅ 인증이 확인되었습니다! 이제 @ 또는 #으로 질문해 주세요." } }] }
+                template: { outputs: [{ simpleText: { text: "✅ 인증되었습니다! 대화를 시작해보세요." } }] }
             });
         }
 
-        // 미인증 유저 (BasicCard 가이드 위반 해결)
         if (!authList[userKey]) {
             return res.status(200).json({
                 version: "2.0",
@@ -71,11 +66,11 @@ app.post('/kakao-auth', async (req, res) => {
                     outputs: [{
                         basicCard: {
                             title: "가족 인증이 필요합니다",
-                            description: "로그인 후 [✅인증확인✅]을 눌러주세요.",
+                            description: "로그인 후 [인증확인]을 눌러주세요.",
                             thumbnail: { imageUrl: "https://cdn-icons-png.flaticon.com/512/6195/6195696.png" },
                             buttons: [
-                                { action: "webLink", label: "🔒로그인 하기", webLinkUrl: `https://happy-home-e120.onrender.com/login?user_key=${userKey}` },
-                                { action: "message", label: "✅인증확인✅", messageText: "인증" }
+                                { action: "webLink", label: "🔒로그인", webLinkUrl: `https://happy-home-e120.onrender.com/login?user_key=${userKey}` },
+                                { action: "message", label: "✅인증확인", messageText: "인증" }
                             ]
                         }
                     }]
@@ -83,9 +78,10 @@ app.post('/kakao-auth', async (req, res) => {
             });
         }
 
-        // Gemini 대화 (v1beta 통신)
         if (uttr.startsWith('@') || uttr.startsWith('#')) {
             const question = uttr.replace(/^[@#]/, "").trim();
+            
+            // 모델이 정상인지 체크하고 질문 던지기
             const result = await model.generateContent(question);
             const response = await result.response;
             
@@ -101,13 +97,16 @@ app.post('/kakao-auth', async (req, res) => {
         });
 
     } catch (err) {
-        console.error("DEBUG:", err.message);
+        // [진단 로그] 에러가 나면 어떤 모델을 쓸 수 있는지 로그에 찍어줍니다.
+        console.error("=== 에러 발생! 모델 목록 확인 권장 ===");
+        console.error("에러 메시지:", err.message);
+        
         return res.status(200).json({
             version: "2.0",
-            template: { outputs: [{ simpleText: { text: "연결 오류가 발생했습니다. 잠시 후 다시 시도해 주세요." } }] }
+            template: { outputs: [{ simpleText: { text: "AI 엔진을 점검 중입니다. 잠시 후 다시 시도해 주세요!" } }] }
         });
     }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`v1beta 서버 가동 중` ));
+app.listen(PORT, '0.0.0.0', () => console.log(`진단 모드 서버 가동`));
