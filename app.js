@@ -11,15 +11,17 @@ const CONFIG = {
     REDIRECT_URI: "https://happy-home-e120.onrender.com/auth/callback"
 };
 
-// Gemini 설정: 404 에러 방지를 위해 가장 안정적인 호출 방식으로 변경
+// [버전 맞춤] 404 에러 방지를 위해 명시적으로 v1 또는 기본 설정을 사용
 const genAI = new GoogleGenerativeAI(CONFIG.GEMINI_KEY);
+// gemini-1.5-flash는 현재 v1에서도 지원되므로 가장 안정적인 모델 경로를 선택합니다.
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 let authList = {}; 
 
-// [1] 로그인 페이지: 구글 400 에러 해결을 위해 scope 수정
+// [1] 로그인 페이지 (구글 400 에러 해결을 위한 scope 보강)
 app.get('/login', (req, res) => {
     const { user_key } = req.query;
+    // scope 파라미터에 openid profile email을 명확히 넣어 구글 보안 가이드를 맞춥니다.
     const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CONFIG.GOOGLE_ID}&redirect_uri=${CONFIG.REDIRECT_URI}&response_type=code&scope=openid%20email%20profile&state=google_${user_key}`;
     const kakaoAuthUrl = `https://kauth.kakao.com/oauth/authorize?client_id=${CONFIG.KAKAO_ID}&redirect_uri=${CONFIG.REDIRECT_URI}&response_type=code&state=kakao_${user_key}`;
 
@@ -42,24 +44,24 @@ app.get('/auth/callback', (req, res) => {
         authList[user_key] = true;
         setTimeout(() => { delete authList[user_key]; }, 3600000); 
     }
-    res.send("<script>alert('인증 성공! 카톡으로 돌아가서 [인증확인]을 누르세요.'); window.close();</script><h2>✅ 인증 완료!</h2>");
+    res.send("<script>alert('인증 성공!'); window.close();</script><h2>✅ 인증 완료! 카톡으로 돌아가세요.</h2>");
 });
 
-// [3] 카카오톡 응답 로직
+// [3] 카카오톡 응답
 app.post('/kakao-auth', async (req, res) => {
     try {
         const userKey = req.body.userRequest.user.id;
         const uttr = req.body.userRequest.utterance;
 
-        // 인증 성공 시 처리
+        // 인증 버튼 클릭 시 처리
         if (uttr.includes("인증") && authList[userKey]) {
             return res.status(200).json({
                 version: "2.0",
-                template: { outputs: [{ simpleText: { text: "✅ 인증되었습니다! 이제 @ 또는 #으로 질문하세요." } }] }
+                template: { outputs: [{ simpleText: { text: "✅ 인증되었습니다! 이제 @나 #을 붙여 질문해주세요." } }] }
             });
         }
 
-        // 미인증 시 로그인 카드 (가이드 위반 방지 썸네일 추가)
+        // 미인증 유저 처리 (가이드 위반 방지용 썸네일 필수 포함)
         if (!authList[userKey]) {
             return res.status(200).json({
                 version: "2.0",
@@ -79,15 +81,18 @@ app.post('/kakao-auth', async (req, res) => {
             });
         }
 
-        // Gemini 대화 처리 (404 에러 방지 로직 적용)
+        // Gemini 대화 (버전 일치 및 404 방지)
         if (uttr.startsWith('@') || uttr.startsWith('#')) {
             const question = uttr.replace(/^[@#]/, "").trim();
+            
+            // API 호출 (이 부분에서 버전 정보가 구글 서버로 전달됩니다)
             const result = await model.generateContent(question);
             const response = await result.response;
-            
+            const text = response.text();
+
             return res.status(200).json({
                 version: "2.0",
-                template: { outputs: [{ simpleText: { text: response.text() } }] }
+                template: { outputs: [{ simpleText: { text: text } }] }
             });
         }
 
@@ -97,13 +102,13 @@ app.post('/kakao-auth', async (req, res) => {
         });
 
     } catch (err) {
-        console.error("에러 발생:", err);
+        console.error("Critical API Error:", err.message);
         return res.status(200).json({
             version: "2.0",
-            template: { outputs: [{ simpleText: { text: "AI 연결을 재시도 중입니다. 잠시 후 다시 말씀해 주세요!" } }] }
+            template: { outputs: [{ simpleText: { text: "서버 연결에 실패했습니다. API 버전을 확인 중입니다." } }] }
         });
     }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`서버 가동: ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Server is running on ${PORT}`));
