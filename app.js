@@ -25,7 +25,7 @@ app.post('/kakao-auth', (req, res) => {
                             {
                                 action: "webLink",
                                 label: "🔒 로그인하러 가기",
-                                webLinkUrl: `https://본인주소.onrender.com/login?user_key=${userKey}` // 본인 Render 주소로 수정!
+                                webLinkUrl: `https://happy-home-e120.onrender.com/login?user_key=${userKey}` // 본인 Render 주소로 수정!
                             }
                         ]
                     }
@@ -34,3 +34,4 @@ app.post('/kakao-auth', (req, res) => {
         });
     }
 });
+
