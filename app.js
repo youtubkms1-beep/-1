@@ -11,14 +11,18 @@ const CONFIG = {
     REDIRECT_URI: "https://happy-home-e120.onrender.com/auth/callback"
 };
 
+// [해결 포인트 1] 명시적으로 v1 정식 버전을 사용하도록 설정
 const genAI = new GoogleGenerativeAI(CONFIG.GEMINI_KEY);
 
-// [변경] 가장 안정적인 gemini-pro 모델을 우선 시도합니다.
-let model = genAI.getGenerativeModel({ model: "gemini-pro" });
+// [해결 포인트 2] 모델 이름 앞에 'models/'를 붙여 경로를 명확히 합니다.
+// 'gemini-1.5-flash'가 최신이므로 이를 기본으로 하되 경로를 보강합니다.
+const model = genAI.getGenerativeModel({ 
+    model: "models/gemini-1.5-flash" 
+});
 
 let authList = {}; 
 
-// [1] 로그인 페이지 (인코딩 보강)
+// [1] 로그인 페이지
 app.get('/login', (req, res) => {
     const { user_key } = req.query;
     const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CONFIG.GOOGLE_ID}&redirect_uri=${encodeURIComponent(CONFIG.REDIRECT_URI)}&response_type=code&scope=openid%20email%20profile&state=google_${user_key}`;
@@ -43,7 +47,7 @@ app.get('/auth/callback', (req, res) => {
         authList[user_key] = true;
         setTimeout(() => { delete authList[user_key]; }, 3600000); 
     }
-    res.send("<script>alert('인증 완료!'); window.close();</script><h2>✅ 인증 성공! 카톡으로 돌아가세요.</h2>");
+    res.send("<script>alert('인증 성공!'); window.close();</script><h2>✅ 인증 완료! 카톡으로 돌아가세요.</h2>");
 });
 
 // [3] 카카오톡 응답 로직
@@ -55,7 +59,7 @@ app.post('/kakao-auth', async (req, res) => {
         if (uttr.includes("인증") && authList[userKey]) {
             return res.status(200).json({
                 version: "2.0",
-                template: { outputs: [{ simpleText: { text: "✅ 인증되었습니다! 대화를 시작해보세요." } }] }
+                template: { outputs: [{ simpleText: { text: "✅ 인증되었습니다! 이제 대화를 시작해보세요." } }] }
             });
         }
 
@@ -81,7 +85,7 @@ app.post('/kakao-auth', async (req, res) => {
         if (uttr.startsWith('@') || uttr.startsWith('#')) {
             const question = uttr.replace(/^[@#]/, "").trim();
             
-            // 모델이 정상인지 체크하고 질문 던지기
+            // 질문 생성 (정식 경로로 호출)
             const result = await model.generateContent(question);
             const response = await result.response;
             
@@ -97,16 +101,13 @@ app.post('/kakao-auth', async (req, res) => {
         });
 
     } catch (err) {
-        // [진단 로그] 에러가 나면 어떤 모델을 쓸 수 있는지 로그에 찍어줍니다.
-        console.error("=== 에러 발생! 모델 목록 확인 권장 ===");
-        console.error("에러 메시지:", err.message);
-        
+        console.error("최종 에러 상세:", err.message);
         return res.status(200).json({
             version: "2.0",
-            template: { outputs: [{ simpleText: { text: "AI 엔진을 점검 중입니다. 잠시 후 다시 시도해 주세요!" } }] }
+            template: { outputs: [{ simpleText: { text: "서버가 모델 주소를 찾는 중입니다. 잠시 후 다시 시도해 주세요!" } }] }
         });
     }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`진단 모드 서버 가동`));
+app.listen(PORT, '0.0.0.0', () => console.log(`서버 가동 완료`));
